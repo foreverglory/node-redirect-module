@@ -1,0 +1,92 @@
+<?php
+
+define('NODE_REDIRECT_STATUS_DEFAULT', 0);
+define('NODE_REDIRECT_STATUS_PHP', 1);
+define('NODE_REDIRECT_STATUS_JAVASCRIPT', 2);
+
+function node_redirect_form_node_type_form_alter(&$form, &$form_state) {
+  $node_redirect = $form['#node_type']->type ? variable_get('node_redirect_' . $form['#node_type']->type, array()) : array();
+  $types = array('insert', 'update', 'delete');
+  $options = array(
+    NODE_REDIRECT_STATUS_DEFAULT => 'default',
+    NODE_REDIRECT_STATUS_PHP => 'PHP',
+    NODE_REDIRECT_STATUS_JAVASCRIPT => 'Javascript'
+  );
+  $form['node_redirect'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('node redirect'),
+    '#group' => 'additional_settings',
+    'redirect' => array()
+  );
+  foreach ($types as $type) {
+    $form['node_redirect']['redirect'][$type] = array(
+      '#type' => 'container',
+      'status' => array(
+        '#title' => t('node ' . $type . ' redirect status'),
+        '#type' => 'select',
+        '#parents' => array('node_redirect', $type, 'status'),
+        '#options' => $options,
+        '#default_value' => $node_redirect ? $node_redirect[$type]['status'] : NODE_REDIRECT_STATUS_DEFAULT,
+      ),
+      'url' => array(
+        '#title' => t('node ' . $type . ' redirect url'),
+        '#type' => 'textfield',
+        '#parents' => array('node_redirect', $type, 'url'),
+        '#default_value' => $node_redirect ? $node_redirect[$type]['url'] : '',
+        '#states' => array(
+          'invisible' => array(
+            ':input[name="node_redirect[' . $type . '][status]"]' => array('value' => NODE_REDIRECT_STATUS_DEFAULT),
+          ),
+        ),
+      ),
+      'timer' => array(
+        '#title' => t('node ' . $type . ' redirect timer'),
+        '#type' => 'textfield',
+        '#parents' => array('node_redirect', $type, 'timer'),
+        '#default_value' => $node_redirect ? $node_redirect[$type]['timer'] : 5,
+        '#states' => array(
+          'visible' => array(
+            ':input[name="node_redirect[' . $type . '][status]"]' => array('value' => NODE_REDIRECT_STATUS_JAVASCRIPT),
+          ),
+        ),
+      )
+    );
+  }
+  array_unshift($form['#submit'], 'node_redirect_node_type_form_submit');
+}
+
+function node_redirect_node_type_form_submit($form, &$form_state) {
+  variable_set('node_redirect_' . $form_state['values']['type'], $form_state['values']['node_redirect']);
+  unset($form_state['values']['node_redirect']);
+}
+
+function node_redirect_form_alter(&$form, &$form_state, $form_id) {
+  if (strpos($form_id, '_node_form') !== FALSE) {
+    $form['actions']['submit']['#submit'][] = 'node_redirect_form_submit';
+  }
+}
+
+function node_redirect_form_submit(&$form, &$form_state) {
+  $nid = $form['nid']['#value'];
+  $type = $form['type']['#value'];
+  if (empty($nid)) {
+    $op = 'insert';
+  } else {
+    $op = 'update';
+  }
+  node_redirect_redirect($form_state, $type, $op);
+}
+
+function node_redirect_redirect(&$form_state, $type, $op) {
+  $node_redirect = variable_get('node_redirect_' . $type, array());
+  if (!empty($node_redirect[$op]) && $node_redirect[$op]['status']) {
+    if ($node_redirect[$op]['status'] == NODE_REDIRECT_STATUS_PHP) {
+      echo $form_state['redirect'] = $node_redirect[$op]['url'];
+    } elseif ($node_redirect[$op]['status'] == NODE_REDIRECT_STATUS_JAVASCRIPT) {
+      $form_state['redirect'] = FALSE;
+      drupal_add_js('jQuery(function () { setTimeout(function(){'
+          . 'window.location.href="' . $node_redirect[$op]['url'] . '";'
+          . '},' . $node_redirect[$op]['timer'] . '); });', 'inline');
+    }
+  }
+}
